@@ -1,0 +1,27 @@
+[Unit]
+Description=Local energy agent (Tesla gateway + Enphase Envoy)
+# The agent binds to the tailnet address, which does not exist until
+# tailscaled has brought the interface up.
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=garrettgjb
+WorkingDirectory=/home/garrettgjb/network_local_connection
+ExecStart=/home/garrettgjb/network_local_connection/bin/serve
+Restart=always
+RestartSec=5
+
+# The unit reads .env (0600) and talks to two LAN devices; it needs nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/garrettgjb/network_local_connection
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

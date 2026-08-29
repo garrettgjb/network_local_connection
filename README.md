@@ -1,0 +1,94 @@
+# network_local_connection
+
+A small PHP agent that reads household energy hardware over the LAN and serves
+one combined JSON document to an authenticated caller on the tailnet.
+
+It exists because the devices are local-only. The Tesla Backup Gateway and the
+Enphase Envoy both speak private-network APIs, so a public host — in this case
+the `/power` dashboard on gbanker.com, which runs on EC2 — has no route to them.
+Rather than exposing the devices or bridging the whole LAN into the cloud, this
+agent sits on the home network, holds the device credentials, and hands out a
+single read-only endpoint over Tailscale.
+
+The public dashboard therefore never holds a device credential. It holds one
+shared token, and can reach exactly one endpoint.
+
+## Endpoints
+
+| Route     | Auth   | Purpose                                          |
+|-----------|--------|--------------------------------------------------|
+| `/health` | none   | Liveness and whether each device is configured   |
+| `/energy` | bearer | Battery and solar readings                       |
+
+```json
+{
+  "generated_at": "2026-08-29T15:41:27+00:00",
+  "battery": {
+    "ok": true, "charge_percent": 62.6, "battery_watts": -1740,
+    "grid_watts": 231, "load_watts": 275, "solar_watts": 1764,
+    "grid_status": "SystemGridConnected", "grid_connected": true
+  },
+  "solar": {
+    "ok": true, "producing_watts": 3472, "produced_today_kwh": 2.92,
+    "inverters_active": 33, "measurement": "ct", "token_expires_in_days": 319
+  }
+}
+```
+
+Sign conventions, normalised across both vendors:
+
+- `battery_watts` — positive discharging, negative charging
+- `grid_watts` — positive importing, negative exporting
+
+A failure reading one device does not blank the other: each carries its own
+`ok` flag and, when false, an `error` explaining what went wrong.
+
+## Requirements
+
+PHP 8.1+ with cURL. No Composer, no framework, no dependencies — so it drops
+onto anything from a NAS VM to a Raspberry Pi unchanged.
+
+## Setup
+
+```bash
+cp .env.example .env      # fill in device credentials and generate AGENT_TOKEN
+chmod 600 .env
+bin/serve                 # foreground, for testing
+```
+
+To install as a service:
+
+```bash
+sudo cp deploy/local-energy.service /etc/systemd/system/
+sudo systemctl enable --now local-energy
+```
+
+`BIND_ADDR` should be the machine's **Tailscale** address, not `0.0.0.0`. That
+is what keeps the agent unreachable from the LAN and from the internet; only
+tailnet peers can connect, and they still need the bearer token.
+
+## Notes on the devices
+
+**Tesla Backup Gateway** — every data endpoint returns 403 until the customer
+password is exchanged for a bearer token at `/api/login/Basic`. The token is
+cached on disk for an hour because the gateway authenticates slowly and
+rate-limits repeated logins. A cached token can outlive a gateway restart, so a
+401/403 triggers exactly one re-login before the read is treated as failed.
+
+**Enphase Envoy** — firmware D7 and later has no local password. It validates a
+JWT that Enphase's cloud issues against the Envoy's serial number. Homeowner
+tokens last about a year, so `/energy` reports `token_expires_in_days`; when
+that runs out, reissue from Enlighten and update `ENVOY_TOKEN`.
+
+Both devices present self-signed certificates, so TLS verification is disabled.
+That is only acceptable because every request stays on the local network.
+
+## Known data quirk
+
+The two devices disagree about solar. The gateway's `solar_watts` has been
+observed at roughly half the Envoy's `producing_watts` at the same instant, and
+the Envoy's consumption CT reports a figure identical to its production —
+usually a sign that the consumption clamp is missing or sits on the same
+conductor. Both figures are passed through unmodified rather than reconciled
+here; treat the Envoy's CT reading as authoritative for production until the
+clamps are verified.

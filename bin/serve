@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Reads BIND_ADDR/BIND_PORT from .env and starts the agent there.
+# Binding to the tailnet address (not 0.0.0.0) is what keeps this off the LAN
+# and off the internet — only tailnet peers can reach it.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+[ -f .env ] || { echo ".env missing — copy .env.example and fill it in" >&2; exit 1; }
+ADDR=$(grep -E '^BIND_ADDR=' .env | cut -d= -f2-)
+PORT=$(grep -E '^BIND_PORT=' .env | cut -d= -f2-)
+exec php -S "${ADDR:-127.0.0.1}:${PORT:-8099}" -t public
