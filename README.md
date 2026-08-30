@@ -83,12 +83,31 @@ that runs out, reissue from Enlighten and update `ENVOY_TOKEN`.
 Both devices present self-signed certificates, so TLS verification is disabled.
 That is only acceptable because every request stays on the local network.
 
+## Which readings to trust
+
+The gateway's own figures are each faithful to the slice of the system it is
+wired to see, and each is the wrong number for a whole-house view:
+
+- Its **solar** covers about half the array. The gateway's CT config shows one
+  solar CT enabled (`valid = [false, true, false, false]`) against two on the
+  site meter, and lifetime totals bear it out: 30.1 MWh logged here against the
+  Envoy's 58.2 MWh, or 51.7%.
+- Its **grid** is the gateway-to-panel tie, not the utility service — the
+  gateway hangs off a breaker in the main panel, so everything upstream looks
+  like "the grid" from inside it.
+- Its **home** is the backed-up sub-panel only.
+
+Consumers should take solar from the Envoy and grid from a meter at the service
+entrance. See `docs/power-metering.md` in the gbanker.com repo, which records
+the hour-by-hour validation against the SDG&E billing meter (14 hours, both
+directions, worst hour ~2%).
+
+The Envoy's **consumption** CTs are misconfigured or absent — `net-consumption`
+reads `-0.0` and `total-consumption` exactly equals production — so only its
+production figures are meaningful.
+
 ## Known data quirk
 
-The two devices disagree about solar. The gateway's `solar_watts` has been
-observed at roughly half the Envoy's `producing_watts` at the same instant, and
-the Envoy's consumption CT reports a figure identical to its production —
-usually a sign that the consumption clamp is missing or sits on the same
-conductor. Both figures are passed through unmodified rather than reconciled
-here; treat the Envoy's CT reading as authoritative for production until the
-clamps are verified.
+Both figures are passed through unmodified rather than reconciled here, so a
+consumer can see the disagreement and decide. The `solar_watts` the gateway
+reports is genuine — it is simply measuring one string.
