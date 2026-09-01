@@ -88,8 +88,19 @@ final class Powerwall
         $battery = (float) ($meters['battery']['instant_power'] ?? 0);
         $site = (float) ($meters['site']['instant_power'] ?? 0);
 
+        /*
+         * The local API reports raw state of charge, which includes a 5%
+         * reserve the Tesla app hides. The app shows (raw - 5) / 0.95, so a
+         * raw 23.5% appears there as 19%. Reporting the raw figure made this
+         * dashboard disagree with the app about the same battery, so the app's
+         * scale is used and the raw value is exposed alongside it.
+         */
+        $raw = (float) ($soe['percentage'] ?? 0);
+        $usable = max(0.0, min(100.0, ($raw - 5) / 0.95));
+
         return [
-            'charge_percent' => round((float) ($soe['percentage'] ?? 0), 1),
+            'charge_percent' => round($usable, 1),
+            'charge_percent_raw' => round($raw, 1),
             'battery_watts' => round($battery),
             'grid_watts' => round($site),
             'load_watts' => round((float) ($meters['load']['instant_power'] ?? 0)),

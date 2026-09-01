@@ -83,6 +83,13 @@ that runs out, reissue from Enlighten and update `ENVOY_TOKEN`.
 Both devices present self-signed certificates, so TLS verification is disabled.
 That is only acceptable because every request stays on the local network.
 
+## State of charge
+
+`charge_percent` matches what the Tesla app shows. The gateway's local API
+reports a raw figure that includes a 5% reserve the app hides — it displays
+`(raw - 5) / 0.95` — so a raw 23.5% is 19% in the app. The raw value is
+reported as `charge_percent_raw` for anyone who wants it.
+
 ## Which readings to trust
 
 The gateway's own figures are each faithful to the slice of the system it is
