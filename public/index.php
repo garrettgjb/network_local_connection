@@ -9,15 +9,18 @@
  * public dashboard only ever holds the shared token below.
  *
  * Routes:
- *   GET /health   liveness plus per-device reachability, no auth
- *   GET /energy   combined battery + solar reading, bearer auth
+ *   GET  /health             liveness plus per-device reachability, no auth
+ *   GET  /energy             combined battery + solar reading, bearer auth
+ *   POST /marketplace/fetch  one marketplace search, made from this house on
+ *                            gbanker.com's behalf (see src/Marketplace.php),
+ *                            bearer auth
  */
 
 declare(strict_types=1);
 
 namespace Local\Energy;
 
-foreach (['DeviceException', 'Http', 'Cache', 'Config', 'Powerwall', 'Envoy'] as $class) {
+foreach (['DeviceException', 'Http', 'Cache', 'Config', 'Powerwall', 'Envoy', 'Marketplace'] as $class) {
     require __DIR__ . "/../src/$class.php";
 }
 
@@ -52,7 +55,8 @@ if ($path === '/health') {
         'envoy_configured' => $envoy->configured(), 'time' => gmdate('c')]);
 }
 
-if ($path !== '/energy') {
+$marketplace = $path === '/marketplace/fetch' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+if ($path !== '/energy' && ! $marketplace) {
     send(404, ['error' => 'Not found']);
 }
 
@@ -65,6 +69,32 @@ if (preg_match('/^Bearer\s+(.+)$/i', $_SERVER['HTTP_AUTHORIZATION'] ?? '', $m)) 
 
 if ($expected === '' || ! hash_equals($expected, $offered)) {
     send(401, ['error' => 'Unauthorized']);
+}
+
+if ($marketplace) {
+    if ($config->get('MARKETPLACE_RELAY') !== 'true') {
+        send(404, ['error' => 'Marketplace relay is off (MARKETPLACE_RELAY)']);
+    }
+
+    $envelope = json_decode((string) file_get_contents('php://input'), true);
+    if (! is_array($envelope) || ! isset($envelope['url'])) {
+        send(400, ['error' => 'Expected {method, url, headers, body}']);
+    }
+
+    $r = (new Marketplace($cache, (int) $config->get('MARKETPLACE_TIMEOUT', '25'), (int) $config->get('MARKETPLACE_PER_MINUTE', '60')))
+        ->forward(
+            (string) ($envelope['method'] ?? 'GET'),
+            (string) $envelope['url'],
+            (array) ($envelope['headers'] ?? []),
+            (string) ($envelope['body'] ?? ''),
+        );
+
+    http_response_code($r['status']);
+    header('Content-Type: ' . $r['type']);
+    // So the caller can tell "the site said this" from "the relay said this".
+    header('X-Relay: ' . ($r['relayed'] ? 'ok' : 'failed'));
+    echo $r['body'];
+    exit;
 }
 
 /**

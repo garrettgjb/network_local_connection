@@ -19,6 +19,7 @@ shared token, and can reach exactly one endpoint.
 |-----------|--------|--------------------------------------------------|
 | `/health` | none   | Liveness and whether each device is configured   |
 | `/energy` | bearer | Battery and solar readings                       |
+| `POST /marketplace/fetch` | bearer | One marketplace search, made from this house |
 
 ```json
 {
@@ -118,3 +119,36 @@ production figures are meaningful.
 Both figures are passed through unmodified rather than reconciled here, so a
 consumer can see the disagreement and decide. The `solar_watts` the gateway
 reports is genuine — it is simply measuring one string.
+
+## Marketplace search relay
+
+`gbanker.com/market` searches OfferUp and Facebook. Both refuse AWS address
+ranges — a blanket filter aimed at bulk scrapers — so the dashboard on EC2 gets
+a `403` and a login page. With `MARKETPLACE_RELAY=true` it sends those searches
+here instead, and they go out over the house connection: a handful of ordinary
+anonymous page fetches every fifteen minutes, the same ones a browser here
+would make.
+
+```
+POST /marketplace/fetch          Authorization: Bearer <AGENT_TOKEN>
+{"method": "POST", "url": "https://offerup.com/api/graphql",
+ "headers": {"content-type": "application/json"}, "body": "{...}"}
+```
+
+The upstream status, content type and body come back untouched, so the caller
+sees exactly what the site said. A failure *here* is a `502` carrying
+`X-Relay: failed`, so the two are never confused.
+
+It is deliberately not a general proxy:
+
+- only `offerup.com/api/graphql` and `www.facebook.com/marketplace/`, over https
+- only the OfferUp operations `GetModularFeed` and `GetListingDetailByListingId`
+- only the headers in `PASS` — **no `Authorization`, no `Cookie`**
+- at most `MARKETPLACE_PER_MINUTE` requests a minute
+- `AGENT_TOKEN` required, over the tailnet, like `/energy`
+
+**Anonymous search only, on purpose.** The signed-in OfferUp calls — inbox,
+replies, offers — are not relayed. Those go out as the account, and OfferUp's
+anti-automation has already reacted to them once (a "new device" mail, then a
+one-time-code prompt). They belong on a machine someone is sitting at, so
+`rejectOperation()` refuses them here rather than trusting the caller.
