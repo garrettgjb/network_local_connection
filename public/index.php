@@ -81,7 +81,12 @@ if ($marketplace) {
         send(400, ['error' => 'Expected {method, url, headers, body}']);
     }
 
-    $r = (new Marketplace($cache, (int) $config->get('MARKETPLACE_TIMEOUT', '25'), (int) $config->get('MARKETPLACE_PER_MINUTE', '60')))
+    $r = (new Marketplace(
+        $cache,
+        (int) $config->get('MARKETPLACE_TIMEOUT', '25'),
+        (int) $config->get('MARKETPLACE_PER_MINUTE', '60'),
+        $config->get('MARKETPLACE_RELAY_ACCOUNT') === 'true',
+    ))
         ->forward(
             (string) ($envelope['method'] ?? 'GET'),
             (string) $envelope['url'],

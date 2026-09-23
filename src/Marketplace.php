@@ -11,18 +11,18 @@ namespace Local\Energy;
  * fifteen minutes, the same ones a browser here would make, so they go out from
  * here instead and the answer goes back.
  *
- * Anonymous search only. Signed-in OfferUp calls — the inbox, replies, offers —
- * are not relayed: those go out as the account, and OfferUp's anti-automation
- * has already reacted to them once. They stay on a machine someone is sitting
- * at. That is enforced here rather than left to the caller's good behaviour:
- * no credential header is passed on, and only the two anonymous GraphQL
- * operations are accepted.
+ * Searches are anonymous and always relayed. The signed-in OfferUp calls — the
+ * inbox, replies, offers — are relayed only with MARKETPLACE_RELAY_ACCOUNT on,
+ * because they carry the account's session: a separate switch so turning on
+ * searching never quietly turns on acting as somebody. Going out from here
+ * suits them, in fact — OfferUp saw a "new device" when they came from EC2,
+ * and from this connection they look like the browsing they resemble.
  *
  * Deliberately not a general proxy:
  *
  *   - only the exact hosts and paths in ALLOWED, by GET or POST
- *   - only the GraphQL operations in OPERATIONS
- *   - only the request headers in PASS — no Authorization, no Cookie
+ *   - only the GraphQL operations in SEARCH (plus ACCOUNT when enabled)
+ *   - only the request headers in PASS — credentials only when enabled
  *   - a per-minute cap, so a bug upstream can't turn this into a scraper
  *   - the caller still needs AGENT_TOKEN, over the tailnet
  *
@@ -38,20 +38,28 @@ final class Marketplace
         'www.facebook.com' => ['/marketplace/'],
     ];
 
-    /** The only OfferUp GraphQL operations relayed — both anonymous. */
-    private const OPERATIONS = ['GetModularFeed', 'GetListingDetailByListingId'];
+    /** Anonymous OfferUp operations: always relayed. */
+    private const SEARCH = ['GetModularFeed', 'GetListingDetailByListingId'];
+
+    /** Signed-in OfferUp operations: relayed only with MARKETPLACE_RELAY_ACCOUNT. */
+    private const ACCOUNT = [
+        'GetUser', 'JwtTokenRefresh', 'GetChats', 'GetChatById', 'GetChatDiscussion',
+        'MarkChatAsRead', 'ReplyChat', 'StartChat', 'MakeOffer',
+    ];
 
     /**
      * Headers passed upstream, lowercase. They arrive in the request envelope
      * rather than as this request's own headers, so the tailnet bearer token
-     * that authenticates the caller never travels on by accident. Authorization
-     * and Cookie are absent on purpose: nothing signed in goes through here.
+     * that authenticates the caller never travels on by accident.
      */
     private const PASS = [
         'accept', 'accept-language', 'content-type',
         'origin', 'referer', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site',
-        'user-agent', 'upgrade-insecure-requests', 'x-ou-operation-name',
+        'user-agent', 'upgrade-insecure-requests', 'x-ou-operation-name', 'x-ou-d-token',
     ];
+
+    /** Passed on only with MARKETPLACE_RELAY_ACCOUNT: the account's session. */
+    private const PASS_ACCOUNT = ['authorization', 'cookie'];
 
     private const MAX_BODY = 65536;
 
@@ -59,6 +67,7 @@ final class Marketplace
         private readonly Cache $cache,
         private readonly int $timeout = 25,
         private readonly int $perMinute = 60,
+        private readonly bool $account = false,
     ) {}
 
     /**
@@ -84,9 +93,10 @@ final class Marketplace
             return $this->refuse(429, "More than {$this->perMinute} requests in a minute — refusing, this relay is for a handful of searches");
         }
 
+        $pass = $this->account ? [...self::PASS, ...self::PASS_ACCOUNT] : self::PASS;
         $out = [];
         foreach ($headers as $name => $value) {
-            if (in_array(strtolower($name), self::PASS, true)) {
+            if (in_array(strtolower($name), $pass, true)) {
                 $out[] = "$name: $value";
             }
         }
@@ -142,9 +152,9 @@ final class Marketplace
     }
 
     /**
-     * Anything posted to OfferUp's GraphQL endpoint has to name one of the
-     * anonymous search operations. This is what keeps the account's own calls —
-     * GetChats, ReplyChat, MakeOffer — off the relay.
+     * Anything posted to OfferUp's GraphQL endpoint has to name an operation
+     * this relay knows. An unlisted one is refused outright rather than passed
+     * through, so the endpoint can't be used for whatever OfferUp adds next.
      */
     private function rejectOperation(string $url, string $body): ?string
     {
@@ -152,12 +162,16 @@ final class Marketplace
             return null;
         }
         $operation = (string) (json_decode($body, true)['operationName'] ?? '');
-        if (! in_array($operation, self::OPERATIONS, true)) {
-            return ($operation === '' ? 'An unnamed OfferUp operation' : "OfferUp's {$operation}")
-                . ' is not relayed — this relay carries anonymous searches only';
+        if (in_array($operation, self::SEARCH, true)) {
+            return null;
+        }
+        if (in_array($operation, self::ACCOUNT, true)) {
+            return $this->account ? null
+                : "OfferUp's {$operation} is signed-in — set MARKETPLACE_RELAY_ACCOUNT to relay those too";
         }
 
-        return null;
+        return ($operation === '' ? 'An unnamed OfferUp operation' : "OfferUp's {$operation}")
+            . ' is not an operation this relay carries';
     }
 
     /**
