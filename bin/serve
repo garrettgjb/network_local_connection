@@ -7,4 +7,8 @@ cd "$(dirname "$0")/.."
 [ -f .env ] || { echo ".env missing — copy .env.example and fill it in" >&2; exit 1; }
 ADDR=$(grep -E '^BIND_ADDR=' .env | cut -d= -f2-)
 PORT=$(grep -E '^BIND_PORT=' .env | cut -d= -f2-)
+# Several workers, or the server handles one request at a time: the dashboard
+# sends its marketplace searches through here in parallel — a few dozen of
+# them for one search — and serially that is half a minute of queueing.
+export PHP_CLI_SERVER_WORKERS="${PHP_CLI_SERVER_WORKERS:-12}"
 exec php -S "${ADDR:-127.0.0.1}:${PORT:-8099}" -t public
