@@ -36,7 +36,9 @@ final class Marketplace
     private const ALLOWED = [
         'offerup.com' => ['/api/graphql'],
         'www.facebook.com' => ['/marketplace/'],
-        'www.craigslist.org' => ['/search/'],
+        // /search/ is the results page; /view/ is one post, which is where
+        // its description and address are.
+        'www.craigslist.org' => ['/search/', '/view/'],
         'yardsaletreasuremap.com' => ['/US/'],
     ];
 
