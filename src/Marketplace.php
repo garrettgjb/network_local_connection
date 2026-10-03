@@ -36,6 +36,8 @@ final class Marketplace
     private const ALLOWED = [
         'offerup.com' => ['/api/graphql'],
         'www.facebook.com' => ['/marketplace/'],
+        'www.craigslist.org' => ['/search/'],
+        'yardsaletreasuremap.com' => ['/US/'],
     ];
 
     /** Anonymous OfferUp operations: always relayed. */
