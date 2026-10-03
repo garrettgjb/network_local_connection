@@ -40,6 +40,8 @@ final class Marketplace
         // its description and address are.
         'www.craigslist.org' => ['/search/', '/view/'],
         'yardsaletreasuremap.com' => ['/US/'],
+        // A city's week of garage sales.
+        'garagesalefinder.com' => ['/yard-sales/'],
     ];
 
     /** Anonymous OfferUp operations: always relayed. */
