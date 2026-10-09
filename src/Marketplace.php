@@ -42,8 +42,9 @@ final class Marketplace
         'yardsaletreasuremap.com' => ['/US/'],
         // A city's week of garage sales.
         'garagesalefinder.com' => ['/yard-sales/'],
-        // A neighborhood's public page, read signed out (gbanker's /nextdoor).
-        'nextdoor.com' => ['/neighborhood/'],
+        // A neighborhood's public page, and one post's, read signed out
+        // (gbanker's /nextdoor).
+        'nextdoor.com' => ['/neighborhood/', '/p/'],
     ];
 
     /** Anonymous OfferUp operations: always relayed. */
